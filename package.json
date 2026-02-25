@@ -1,0 +1,52 @@
+{
+  "name": "campus-market-backend",
+  "version": "1.0.0",
+  "description": "Campus Market Backend API",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "seed": "node scripts/seed.js",
+    "test:registration": "node scripts/test-registration.js",
+    "test:stkpush": "node scripts/test-stkpush.js",
+    "test:health": "node scripts/test-health.js",
+    "test:logging": "node scripts/test-request-logging.js",
+    "db:indexes": "node scripts/create-indexes.js",
+    "db:check-indexes": "node scripts/check-indexes.js",
+    "logs:rotate": "node scripts/rotate-logs.js",
+    "logs:rotate:dry": "node scripts/rotate-logs.js --dry-run",
+    "logs:compress": "node scripts/rotate-logs.js --compress",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:models": "jest tests/models",
+    "test:controllers": "jest tests/controllers",
+    "test:utils": "jest tests/utils"
+  },
+  "dependencies": {
+    "axios": "^1.7.9",
+    "bcryptjs": "^2.4.3",
+    "cloudinary": "^2.5.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-mongo-sanitize": "^2.2.0",
+    "express-rate-limit": "^7.5.1",
+    "express-validator": "^7.2.0",
+    "file-type": "^19.8.0",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.9.2",
+    "morgan": "^1.10.0",
+    "multer": "^1.4.5-lts.1",
+    "rotating-file-stream": "^3.2.3",
+    "socket.io": "^4.8.1"
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "jest": "^30.2.0",
+    "mongodb-memory-server": "^11.0.1",
+    "nodemon": "^3.1.14",
+    "supertest": "^7.2.2"
+  }
+}
