@@ -115,6 +115,18 @@ exports.uploadImage = async (req, res, next) => {
  */
 exports.uploadImages = async (req, res, next) => {
   try {
+    console.log('[uploadImages] Request received:', {
+      hasFiles: !!req.files,
+      filesCount: req.files?.length || 0,
+      files: req.files?.map(f => ({
+        originalname: f.originalname,
+        mimetype: f.mimetype,
+        size: f.size,
+        hasBuffer: !!f.buffer,
+        bufferLength: f.buffer?.length || 0
+      }))
+    });
+
     if (!req.files || req.files.length === 0) {
       return next(new ErrorResponse('No files uploaded', 400));
     }
@@ -127,6 +139,14 @@ exports.uploadImages = async (req, res, next) => {
     const allowedMimes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
 
     for (const file of req.files) {
+      console.log('[uploadImages] Processing file:', {
+        originalname: file.originalname,
+        mimetype: file.mimetype,
+        size: file.size,
+        hasBuffer: !!file.buffer,
+        bufferLength: file.buffer?.length || 0
+      });
+
       // Check file size
       if (file.size > 5 * 1024 * 1024) {
         return next(new ErrorResponse(`File ${file.originalname} too large. Max 5MB`, 400));
@@ -146,9 +166,17 @@ exports.uploadImages = async (req, res, next) => {
             error: validateError.message
           });
         }
+      } else {
+        console.error('[uploadImages] File has no buffer or buffer is empty:', {
+          originalname: file.originalname,
+          hasBuffer: !!file.buffer,
+          bufferLength: file.buffer?.length || 0
+        });
+        return next(new ErrorResponse(`File ${file.originalname} has no data. Please try again.`, 400));
       }
 
       // Upload using buffer (memory storage)
+      console.log('[uploadImages] Starting Cloudinary upload for:', file.originalname);
       const result = await cloudinary.uploader.upload(
         `data:${file.mimetype};base64,${file.buffer.toString('base64')}`,
         {
@@ -176,7 +204,14 @@ exports.uploadImages = async (req, res, next) => {
     });
   } catch (error) {
     console.error('Upload error:', error);
-    next(new ErrorResponse('Failed to upload images', 500));
+    console.error('Upload error details:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name,
+      filesCount: req.files?.length || 0,
+      hasFiles: !!req.files
+    });
+    next(new ErrorResponse(error.message || 'Failed to upload images', 500));
   }
 };
 
