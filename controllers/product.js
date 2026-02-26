@@ -4,6 +4,7 @@ const mongoose = require('mongoose');
 const { formatPaginationResponse, getPagination, asyncHandler } = require('../utils/helpers');
 const { validateCategory } = require('../utils/validation');
 const ErrorResponse = require('../middleware/error').ErrorResponse;
+const { clearDashboardCache } = require('./user');
 
 /**
  * @desc    Get all products with filtering, search, and pagination
@@ -183,6 +184,9 @@ exports.createProduct = async (req, res, next) => {
 
     const product = await Product.create(req.body);
 
+    // Clear dashboard cache for the seller
+    clearDashboardCache(req.user.id);
+
     // Use populate with lean to avoid second query overhead
     const populatedProduct = await Product.findById(product._id)
       .populate('category', 'name slug')
@@ -230,6 +234,9 @@ exports.updateProduct = async (req, res, next) => {
       runValidators: true
     }).populate('category', 'name slug').lean();
 
+    // Clear dashboard cache for the seller
+    clearDashboardCache(product.seller.toString());
+
     res.json({
       success: true,
       message: 'Product updated successfully',
@@ -260,7 +267,11 @@ exports.deleteProduct = async (req, res, next) => {
       return next(new ErrorResponse('Not authorized to delete this product', 403));
     }
 
+    const sellerId = product.seller.toString();
     await product.deleteOne();
+
+    // Clear dashboard cache for the seller
+    clearDashboardCache(sellerId);
 
     res.json({
       success: true,

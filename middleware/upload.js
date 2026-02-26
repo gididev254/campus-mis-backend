@@ -23,10 +23,39 @@ const upload = multer({
   },
   fileFilter: async (req, file, cb) => {
     try {
+      // Skip validation if buffer is empty - fileFilter runs before file is fully stored
+      // Validation will happen in the controller after upload
+      if (!file.buffer || file.buffer.length === 0) {
+        console.log('[Upload Debug] No buffer in fileFilter, deferring validation to controller');
+        // Basic validation using mimetype from request
+        const allowedMimes = [
+          'image/jpeg',
+          'image/jpg',
+          'image/png',
+          'image/webp',
+          'image/gif'
+        ];
+        if (!allowedMimes.includes(file.mimetype)) {
+          return cb(new Error(`File type ${file.mimetype} is not allowed. Only images are permitted.`), false);
+        }
+        return cb(null, true);
+      }
+
       // Check file type by actual content (magic bytes)
       const fileType = await FileType.fromBuffer(file.buffer);
 
       if (!fileType) {
+        // If we can't determine type but buffer exists, fall back to mimetype
+        const allowedMimes = [
+          'image/jpeg',
+          'image/jpg',
+          'image/png',
+          'image/webp',
+          'image/gif'
+        ];
+        if (allowedMimes.includes(file.mimetype)) {
+          return cb(null, true);
+        }
         return cb(new Error('Invalid file type. Could not determine file type.'), false);
       }
 
@@ -50,6 +79,15 @@ const upload = multer({
 
       cb(null, true);
     } catch (error) {
+      console.error('[Upload Error] fileFilter error:', error);
+      console.error('[Upload Error] file object:', {
+        fieldname: file.fieldname,
+        originalname: file.originalname,
+        mimetype: file.mimetype,
+        size: file.size,
+        hasBuffer: !!file.buffer,
+        bufferLength: file.buffer?.length
+      });
       cb(new Error('Error validating file type'), false);
     }
   }

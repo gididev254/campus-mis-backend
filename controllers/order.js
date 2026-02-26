@@ -7,6 +7,7 @@ const { validateProductForPurchase } = require('../utils/validation');
 const ErrorResponse = require('../middleware/error').ErrorResponse;
 const { createNotification } = require('../utils/notifications');
 const { populateOrder, findAndPopulate, findManyAndPopulate, POPULATE_FIELDS } = require('../utils/populate');
+const { clearDashboardCache } = require('./user');
 
 /**
  * @desc    Checkout all items in user's cart (multi-seller support)
@@ -236,6 +237,9 @@ exports.createOrder = async (req, res, next) => {
     // Update product status
     product.status = 'pending';
     await product.save();
+
+    // Clear dashboard cache for the seller
+    clearDashboardCache(product.seller.toString());
 
     // Create notification for seller
     await createNotification({
@@ -513,6 +517,9 @@ exports.updateOrderStatus = async (req, res, next) => {
         }
       });
     }
+
+    // Clear dashboard cache for the seller
+    clearDashboardCache(order.seller.toString());
 
     // Return populated order using populate utility
     const populatedOrder = await findAndPopulate(

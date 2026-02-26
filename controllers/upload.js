@@ -1,6 +1,7 @@
 const cloudinary = require('cloudinary').v2;
 const ErrorResponse = require('../middleware/error').ErrorResponse;
 const logger = require('../utils/logger');
+const FileType = require('file-type');
 
 /**
  * Configure Cloudinary with environment variables
@@ -28,6 +29,30 @@ exports.uploadImage = async (req, res, next) => {
         reason: 'No file uploaded'
       });
       return next(new ErrorResponse('No file uploaded', 400));
+    }
+
+    // Validate file type from buffer (secondary validation after middleware)
+    if (req.file.buffer && req.file.buffer.length > 0) {
+      try {
+        const fileType = await FileType.fromBuffer(req.file.buffer);
+        const allowedMimes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
+
+        if (fileType && !allowedMimes.includes(fileType.mime)) {
+          logger.fileUpload({
+            userId: req.user?.id,
+            fileName: req.file.originalname,
+            success: false,
+            reason: `Invalid file type: ${fileType.mime}`
+          });
+          return next(new ErrorResponse(`File type ${fileType.mime} is not allowed. Only images are permitted.`, 400));
+        }
+      } catch (validateError) {
+        // If validation fails, log but continue with mimetype check
+        logger.logger.warn('[Upload] Could not validate file type from buffer, using mimetype', {
+          error: validateError.message,
+          mimetype: req.file.mimetype
+        });
+      }
     }
 
     // Check file size (max 5MB)
@@ -99,11 +124,28 @@ exports.uploadImages = async (req, res, next) => {
     }
 
     const uploads = [];
+    const allowedMimes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
 
     for (const file of req.files) {
       // Check file size
       if (file.size > 5 * 1024 * 1024) {
         return next(new ErrorResponse(`File ${file.originalname} too large. Max 5MB`, 400));
+      }
+
+      // Validate file type from buffer (secondary validation after middleware)
+      if (file.buffer && file.buffer.length > 0) {
+        try {
+          const fileType = await FileType.fromBuffer(file.buffer);
+          if (fileType && !allowedMimes.includes(fileType.mime)) {
+            return next(new ErrorResponse(`File ${file.originalname} has type ${fileType.mime} which is not allowed. Only images are permitted.`, 400));
+          }
+        } catch (validateError) {
+          // If validation fails, log but continue with mimetype check
+          logger.logger.warn('[Upload] Could not validate file type from buffer', {
+            fileName: file.originalname,
+            error: validateError.message
+          });
+        }
       }
 
       // Upload using buffer (memory storage)

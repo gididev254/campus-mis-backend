@@ -6,6 +6,46 @@ const { formatPaginationResponse, getPagination } = require('../utils/helpers');
 const { findManyAndPopulate, POPULATE_FIELDS } = require('../utils/populate');
 
 /**
+ * Simple in-memory cache for dashboard stats
+ * Cache TTL: 30 seconds
+ */
+const dashboardCache = new Map();
+const CACHE_TTL = 30 * 1000; // 30 seconds
+
+/**
+ * Get cached dashboard stats or return null if expired/not found
+ * @param {string} userId - User ID to fetch cache for
+ * @returns {Object|null} Cached data or null
+ */
+function getCachedDashboardStats(userId) {
+  const cached = dashboardCache.get(userId);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.data;
+  }
+  return null;
+}
+
+/**
+ * Set dashboard stats in cache
+ * @param {string} userId - User ID to cache for
+ * @param {Object} data - Data to cache
+ */
+function setCachedDashboardStats(userId, data) {
+  dashboardCache.set(userId, {
+    data,
+    timestamp: Date.now()
+  });
+}
+
+/**
+ * Clear dashboard stats cache for a specific user
+ * @param {string} userId - User ID to clear cache for
+ */
+function clearDashboardCache(userId) {
+  dashboardCache.delete(userId);
+}
+
+/**
  * @desc    Get all users with filtering and pagination (admin only)
  * @route   GET /api/users
  * @access  Private (Admin)
@@ -161,78 +201,89 @@ exports.deleteUser = async (req, res, next) => {
  */
 exports.getDashboardStats = async (req, res, next) => {
   try {
+    const userId = req.user.id;
+
+    // Check cache first
+    const cached = getCachedDashboardStats(userId);
+    if (cached) {
+      return res.json(cached);
+    }
+
     const Product = require('../models/Product');
     const Order = require('../models/Order');
     const Message = require('../models/Message');
 
-    const userId = req.user.id;
-
-    // Use aggregation for product stats - single query instead of 3 separate counts
-    const productStats = await Product.aggregate([
-      { $match: { seller: userId } },
-      {
-        $group: {
-          _id: null,
-          total: { $sum: 1 },
-          available: {
-            $sum: { $cond: [{ $eq: ['$status', 'available'] }, 1, 0] }
-          },
-          sold: {
-            $sum: { $cond: [{ $eq: ['$status', 'sold'] }, 1, 0] }
-          }
-        }
-      }
-    ]);
-
-    const stats = productStats[0] || { total: 0, available: 0, sold: 0 };
-
-    // Use aggregation for order stats - single query instead of 3 separate counts
-    const orderStats = await Order.aggregate([
-      { $match: { seller: userId } },
-      {
-        $group: {
-          _id: null,
-          total: { $sum: 1 },
-          pending: {
-            $sum: { $cond: [{ $eq: ['$status', 'pending'] }, 1, 0] }
-          },
-          delivered: {
-            $sum: { $cond: [{ $eq: ['$status', 'delivered'] }, 1, 0] }
-          },
-          totalRevenue: {
-            $sum: {
-              $cond: [
-                { $eq: ['$paymentStatus', 'completed'] },
-                '$totalPrice',
-                0
-              ]
+    // Run all independent queries in parallel for better performance
+    const [
+      productStats,
+      orderStats,
+      unreadMessages,
+      recentProducts,
+      recentOrders
+    ] = await Promise.all([
+      // Product stats aggregation
+      Product.aggregate([
+        { $match: { seller: userId } },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: 1 },
+            available: {
+              $sum: { $cond: [{ $eq: ['$status', 'available'] }, 1, 0] }
+            },
+            sold: {
+              $sum: { $cond: [{ $eq: ['$status', 'sold'] }, 1, 0] }
             }
           }
         }
-      }
+      ]),
+      // Order stats aggregation
+      Order.aggregate([
+        { $match: { seller: userId } },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: 1 },
+            pending: {
+              $sum: { $cond: [{ $eq: ['$status', 'pending'] }, 1, 0] }
+            },
+            delivered: {
+              $sum: { $cond: [{ $eq: ['$status', 'delivered'] }, 1, 0] }
+            },
+            totalRevenue: {
+              $sum: {
+                $cond: [
+                  { $eq: ['$paymentStatus', 'completed'] },
+                  '$totalPrice',
+                  0
+                ]
+              }
+            }
+          }
+        }
+      ]),
+      // Unread messages count
+      Message.countDocuments({ receiver: userId, isRead: false }),
+      // Recent products - lean() for better performance
+      Product.find({ seller: userId })
+        .select('title price images status views createdAt')
+        .sort({ createdAt: -1 })
+        .limit(5)
+        .lean(),
+      // Recent orders - only select needed fields to reduce data transfer
+      Order.find({ seller: userId })
+        .select('orderNumber status totalPrice paymentStatus createdAt product buyer')
+        .populate('product', POPULATE_FIELDS.PRODUCT_BASIC)
+        .populate('buyer', POPULATE_FIELDS.USER_BASIC)
+        .sort({ createdAt: -1 })
+        .limit(5)
+        .lean()
     ]);
 
+    const stats = productStats[0] || { total: 0, available: 0, sold: 0 };
     const orderStatsData = orderStats[0] || { total: 0, pending: 0, delivered: 0, totalRevenue: 0 };
 
-    // Get unread messages count
-    const unreadMessages = await Message.countDocuments({ receiver: userId, isRead: false });
-
-    // Get recent products - lean() for better performance
-    const recentProducts = await Product.find({ seller: userId })
-      .select('title price images status views createdAt')
-      .sort({ createdAt: -1 })
-      .limit(5)
-      .lean();
-
-    // Get recent orders with populate - single query with populated fields
-    const recentOrders = await Order.find({ seller: userId })
-      .populate('product', POPULATE_FIELDS.PRODUCT_BASIC)
-      .populate('buyer', POPULATE_FIELDS.USER_BASIC)
-      .sort({ createdAt: -1 })
-      .limit(5)
-      .lean();
-
-    res.json({
+    const responseData = {
       success: true,
       stats: {
         products: {
@@ -250,7 +301,12 @@ exports.getDashboardStats = async (req, res, next) => {
       },
       recentProducts,
       recentOrders
-    });
+    };
+
+    // Cache the response
+    setCachedDashboardStats(userId, responseData);
+
+    res.json(responseData);
   } catch (error) {
     next(error);
   }
@@ -349,5 +405,8 @@ exports.changePassword = async (req, res, next) => {
     next(error);
   }
 };
+
+// Export cache clearing functions for use in other controllers
+exports.clearDashboardCache = clearDashboardCache;
 
 module.exports = exports;
