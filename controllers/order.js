@@ -706,6 +706,11 @@ exports.getPayoutLedger = async (req, res, next) => {
     // Group by seller (orders already populated, no N+1 queries)
     const groupedBySeller = {};
     for (const order of orders) {
+      // Skip orders with no seller (data integrity issue)
+      if (!order.seller || !order.seller._id) {
+        continue;
+      }
+
       const sellerId = order.seller._id.toString();
       if (!groupedBySeller[sellerId]) {
         groupedBySeller[sellerId] = {
