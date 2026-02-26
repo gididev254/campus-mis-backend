@@ -48,7 +48,7 @@ exports.uploadImage = async (req, res, next) => {
         }
       } catch (validateError) {
         // If validation fails, log but continue with mimetype check
-        logger.logger.warn('[Upload] Could not validate file type from buffer, using mimetype', {
+        logger.warn('[Upload] Could not validate file type from buffer, using mimetype', {
           error: validateError.message,
           mimetype: req.file.mimetype
         });
@@ -161,7 +161,7 @@ exports.uploadImages = async (req, res, next) => {
           }
         } catch (validateError) {
           // If validation fails, log but continue with mimetype check
-          logger.logger.warn('[Upload] Could not validate file type from buffer', {
+          logger.warn('[Upload] Could not validate file type from buffer', {
             fileName: file.originalname,
             error: validateError.message
           });
