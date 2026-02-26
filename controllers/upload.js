@@ -42,16 +42,19 @@ exports.uploadImage = async (req, res, next) => {
       return next(new ErrorResponse('File size too large. Max 5MB', 400));
     }
 
-    // Upload to Cloudinary
-    const result = await cloudinary.uploader.upload(req.file.path, {
-      folder: 'campus-market',
-      allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
-      max_file_size: 5000000, // 5MB
-      transformation: [
-        { quality: 'auto', fetch_format: 'auto' },
-        { width: 1200, crop: 'limit' }
-      ]
-    });
+    // Upload to Cloudinary using buffer (memory storage)
+    const result = await cloudinary.uploader.upload(
+      `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`,
+      {
+        folder: 'campus-market',
+        allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
+        max_file_size: 5000000, // 5MB
+        transformation: [
+          { quality: 'auto', fetch_format: 'auto' },
+          { width: 1200, crop: 'limit' }
+        ]
+      }
+    );
 
     logger.fileUpload({
       userId: req.user?.id,
@@ -103,15 +106,19 @@ exports.uploadImages = async (req, res, next) => {
         return next(new ErrorResponse(`File ${file.originalname} too large. Max 5MB`, 400));
       }
 
-      const result = await cloudinary.uploader.upload(file.path, {
-        folder: 'campus-market',
-        allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
-        max_file_size: 5000000,
-        transformation: [
-          { quality: 'auto', fetch_format: 'auto' },
-          { width: 1200, crop: 'limit' }
-        ]
-      });
+      // Upload using buffer (memory storage)
+      const result = await cloudinary.uploader.upload(
+        `data:${file.mimetype};base64,${file.buffer.toString('base64')}`,
+        {
+          folder: 'campus-market',
+          allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
+          max_file_size: 5000000,
+          transformation: [
+            { quality: 'auto', fetch_format: 'auto' },
+            { width: 1200, crop: 'limit' }
+          ]
+        }
+      );
 
       uploads.push({
         url: result.secure_url,

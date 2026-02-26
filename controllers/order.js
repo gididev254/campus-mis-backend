@@ -385,9 +385,17 @@ exports.getOrders = async (req, res, next) => {
 
     // Build query based on user role
     const query = {};
-    if (as === 'seller' || req.user.role === 'seller') {
+
+    // Admin: Get ALL orders (no filter)
+    if (req.user.role === 'admin') {
+      // No filters - return all orders
+    }
+    // Seller: Get their orders
+    else if (as === 'seller' || req.user.role === 'seller') {
       query.seller = req.user.id;
-    } else {
+    }
+    // Buyer: Get their orders
+    else {
       query.buyer = req.user.id;
     }
 
@@ -702,12 +710,19 @@ exports.getPayoutLedger = async (req, res, next) => {
       if (!groupedBySeller[sellerId]) {
         groupedBySeller[sellerId] = {
           seller: order.seller,
+          sellerId: sellerId,
           orders: [],
-          totalAmount: 0
+          totalAmount: 0,
+          totalEarnings: 0,
+          paidAmount: 0,
+          pendingAmount: 0
         };
       }
+
       groupedBySeller[sellerId].orders.push(order);
       groupedBySeller[sellerId].totalAmount += order.totalPrice;
+      groupedBySeller[sellerId].totalEarnings += order.totalPrice;
+      groupedBySeller[sellerId].pendingAmount += order.totalPrice;
     }
 
     const sellerGroups = Object.values(groupedBySeller);
