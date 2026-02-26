@@ -11,7 +11,7 @@ const users = [
   {
     name: 'Admin User',
     email: 'admin@market.com',
-    password: 'admin123',
+    password: 'Admin@123',
     role: 'admin',
     phone: '+254700000001',
     location: 'Main Campus',
@@ -20,7 +20,7 @@ const users = [
   {
     name: 'John Seller',
     email: 'seller@campus.com',
-    password: 'seller123',
+    password: 'Seller@123',
     role: 'seller',
     phone: '+254700000002',
     location: 'Hostel A',
@@ -29,7 +29,7 @@ const users = [
   {
     name: 'Jane Buyer',
     email: 'buyer@campus.com',
-    password: 'buyer123',
+    password: 'Buyer@123',
     role: 'buyer',
     phone: '+254700000003',
     location: 'Hostel B',
@@ -38,7 +38,7 @@ const users = [
   {
     name: 'Test Seller 2',
     email: 'seller2@campus.com',
-    password: 'seller123',
+    password: 'Seller@123',
     role: 'seller',
     phone: '+254700000004',
     location: 'Off Campus',
@@ -47,7 +47,7 @@ const users = [
   {
     name: 'Test Buyer 2',
     email: 'buyer2@campus.com',
-    password: 'buyer123',
+    password: 'Buyer@123',
     role: 'buyer',
     phone: '+254700000005',
     location: 'Main Campus',
@@ -140,12 +140,11 @@ async function seed() {
       console.log(`Created category: ${cat.name}`);
     }
 
-    // Create users
+    // Create users (password will be hashed by pre-save hook)
     const createdUsers = [];
     for (const userData of users) {
-      const salt = await bcrypt.genSalt(10);
-      userData.password = await bcrypt.hash(userData.password, salt);
-      const user = await User.create(userData);
+      const user = new User(userData);
+      await user.save({ validateBeforeSave: false });
       createdUsers.push(user);
     }
     console.log(`Created ${createdUsers.length} users`);
