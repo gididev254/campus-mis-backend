@@ -1,36 +1,6 @@
 services:
-  # Web Service
   - type: web
     name: campus-market-backend
     env: node
-    region: oregon
-    plan: free
     buildCommand: npm install
     startCommand: node server.js
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: MONGODB_URI
-        generateValue: true
-      - key: JWT_SECRET
-        generateValue: true
-      - key: FRONTEND_URL
-        value: https://campus-mis-frontend.vercel.app
-      - key: CLOUDINARY_CLOUD_NAME
-        sync: false
-      - key: CLOUDINARY_API_KEY
-        sync: false
-      - key: CLOUDINARY_API_SECRET
-        sync: false
-      - key: MPESA_BASE_URL
-        value: https://sandbox.safaricom.co.ke
-      - key: MPESA_CONSUMER_KEY
-        sync: false
-      - key: MPESA_CONSUMER_SECRET
-        sync: false
-      - key: MPESA_PASSKEY
-        sync: false
-      - key: MPESA_SHORTCODE
-        value: "174379"
-      - key: MPESA_ENV
-        value: sandbox
