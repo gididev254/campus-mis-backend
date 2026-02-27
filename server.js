@@ -28,6 +28,7 @@ const cartRoutes = require('./routes/cart');
 const wishlistRoutes = require('./routes/wishlist');
 const notificationRoutes = require('./routes/notifications');
 const uploadRoutes = require('./routes/upload');
+const adminRoutes = require('./routes/admin');
 
 // Initialize express app and HTTP server
 const app = express();
@@ -489,6 +490,7 @@ app.use('/api/v1/cart', cartRoutes);
 app.use('/api/v1/wishlist', wishlistRoutes);
 app.use('/api/v1/notifications', notificationRoutes);
 app.use('/api/v1/upload', uploadRoutes);
+app.use('/api/v1/admin', adminRoutes);
 
 // Error handling
 app.use(notFound);
