@@ -528,4 +528,76 @@ exports.getRelatedProducts = async (req, res, next) => {
   }
 };
 
+/**
+ * @desc    Revert a product from 'pending' back to 'available' status
+ * @route   PUT /api/products/:id/revert-status
+ * @access  Private (Seller only, owner or admin)
+ * @param   {string} req.params.id - Product ID
+ * @returns {Promise<Object>} Response with success status and updated product data
+ */
+exports.revertProductStatus = async (req, res, next) => {
+  try {
+    const product = await Product.findById(req.params.id);
+
+    if (!product) {
+      return next(new ErrorResponse('Product not found', 404));
+    }
+
+    // Check ownership
+    if (product.seller.toString() !== req.user.id && req.user.role !== 'admin') {
+      return next(new ErrorResponse('Not authorized to revert this product status', 403));
+    }
+
+    // Only revert pending products
+    if (product.status !== 'pending') {
+      return next(new ErrorResponse('Only pending products can be reverted to available', 400));
+    }
+
+    product.status = 'available';
+    await product.save();
+
+    // Clear dashboard cache for the seller
+    clearDashboardCache(product.seller.toString());
+
+    res.json({
+      success: true,
+      message: 'Product status reverted to available',
+      product
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Bulk revert products from 'pending' back to 'available' status
+ *          For cleanup scripts and admin tools
+ * @access  Private (Admin only)
+ * @param   {Object} req.body - Request body
+ * @param   {Array<string>} req.body.productIds - Array of product IDs to revert
+ * @returns {Promise<Object>} Response with success status and count of products reverted
+ */
+exports.bulkRevertProductStatus = async (req, res, next) => {
+  try {
+    const { productIds } = req.body;
+
+    if (!Array.isArray(productIds) || productIds.length === 0) {
+      return next(new ErrorResponse('Product IDs array is required', 400));
+    }
+
+    const result = await Product.updateMany(
+      { _id: { $in: productIds }, status: 'pending' },
+      { status: 'available' }
+    );
+
+    res.json({
+      success: true,
+      message: `Reverted ${result.modifiedCount} product(s) to available`,
+      count: result.modifiedCount
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = exports;

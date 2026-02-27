@@ -10,7 +10,9 @@ const {
   toggleLike,
   getSellerProducts,
   getRelatedProducts,
-  getSoldProducts
+  getSoldProducts,
+  revertProductStatus,
+  bulkRevertProductStatus
 } = require('../controllers/product');
 const { protect, authorize, optionalAuth } = require('../middleware/auth');
 const { handleUploadError, uploadMultiple } = require('../middleware/upload');
@@ -60,6 +62,19 @@ router.delete('/:id',
 );
 
 router.post('/:id/like', protect, toggleLike);
+
+// Product status management
+router.put('/:id/revert-status',
+  protect,
+  authorize('seller', 'admin'),
+  revertProductStatus
+);
+
+router.put('/admin/bulk-revert',
+  protect,
+  authorize('admin'),
+  bulkRevertProductStatus
+);
 
 // Sold products history
 router.get('/sold/history',

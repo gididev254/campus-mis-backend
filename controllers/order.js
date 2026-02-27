@@ -8,6 +8,7 @@ const ErrorResponse = require('../middleware/error').ErrorResponse;
 const { createNotification } = require('../utils/notifications');
 const { populateOrder, findAndPopulate, findManyAndPopulate, POPULATE_FIELDS } = require('../utils/populate');
 const { clearDashboardCache } = require('./user');
+const logger = require('../utils/logger');
 
 /**
  * @desc    Checkout all items in user's cart (multi-seller support)
@@ -609,18 +610,43 @@ exports.mpesaCallback = async (req, res, next) => {
     const { stkCallback } = Body;
     const { CheckoutRequestID, ResultCode, ResultDesc } = stkCallback;
 
+    // Log incoming callback
+    logger.info('M-Pesa callback received', {
+      checkoutRequestID: CheckoutRequestID,
+      resultCode: ResultCode,
+      resultDesc: ResultDesc,
+      timestamp: new Date().toISOString()
+    });
+
     // Find ALL orders with this checkoutRequestID (supports multi-seller checkout)
     const orders = await Order.find({
       checkoutRequestID: CheckoutRequestID
     }).session(session);
 
     if (orders.length === 0) {
+      logger.warn('M-Pesa callback: No orders found for checkoutRequestID', {
+        checkoutRequestID: CheckoutRequestID
+      });
       return res.json({ success: false, message: 'Order not found' });
     }
+
+    logger.info(`M-Pesa callback: Processing ${orders.length} order(s)`, {
+      checkoutRequestID: CheckoutRequestID,
+      orderIds: orders.map(o => o._id)
+    });
 
     if (ResultCode === 0) {
       // Success - update ALL orders
       const { MpesaReceiptNumber, PhoneNumber } = stkCallback.CallbackMetadata.Item;
+
+      logger.payment('callback_success', {
+        success: true,
+        checkoutRequestID: CheckoutRequestID,
+        mpesaReceipt: MpesaReceiptNumber,
+        phone: PhoneNumber,
+        amount: orders.reduce((sum, o) => sum + o.totalPrice, 0),
+        orderCount: orders.length
+      });
 
       // Collect all product IDs for bulk update
       const productIds = orders.map(order => order.product);
@@ -629,18 +655,36 @@ exports.mpesaCallback = async (req, res, next) => {
       await Promise.all(orders.map(async (order) => {
         order.paymentStatus = 'completed';
         order.mpesaTransactionId = MpesaReceiptNumber;
+        order.mpesaPhoneNumber = PhoneNumber;
+        order.mpesaResultCode = ResultCode;
+        order.mpesaResultDesc = ResultDesc;
         order.status = 'confirmed';
         await order.save({ session });
       }));
 
       // Bulk update all products to sold status
-      await Product.updateMany(
+      const productUpdateResult = await Product.updateMany(
         { _id: { $in: productIds } },
         { status: 'sold' },
         { session }
       );
+
+      logger.success('M-Pesa callback: Orders and products updated successfully', {
+        ordersUpdated: orders.length,
+        productsMarkedSold: productUpdateResult.modifiedCount,
+        checkoutRequestID: CheckoutRequestID,
+        mpesaReceipt: MpesaReceiptNumber
+      });
     } else {
       // Failed - update ALL orders
+      logger.payment('callback_failed', {
+        success: false,
+        checkoutRequestID: CheckoutRequestID,
+        resultCode: ResultCode,
+        resultDesc: ResultDesc,
+        orderCount: orders.length
+      });
+
       // Collect all product IDs for bulk update
       const productIds = orders.map(order => order.product);
 
@@ -649,15 +693,25 @@ exports.mpesaCallback = async (req, res, next) => {
         order.paymentStatus = 'failed';
         order.status = 'cancelled';
         order.cancellationReason = 'payment-failed';
+        order.mpesaResultCode = ResultCode;
+        order.mpesaResultDesc = ResultDesc;
+        order.cancelledAt = Date.now();
         await order.save({ session });
       }));
 
       // Bulk update all products back to available
-      await Product.updateMany(
+      const productUpdateResult = await Product.updateMany(
         { _id: { $in: productIds } },
         { status: 'available' },
         { session }
       );
+
+      logger.success('M-Pesa callback: Failed orders processed, products reverted to available', {
+        ordersCancelled: orders.length,
+        productsReverted: productUpdateResult.modifiedCount,
+        checkoutRequestID: CheckoutRequestID,
+        reason: ResultDesc
+      });
     }
 
     await session.commitTransaction();
@@ -665,7 +719,10 @@ exports.mpesaCallback = async (req, res, next) => {
 
   } catch (error) {
     await session.abortTransaction();
-    console.error('M-Pesa callback error:', error);
+    logger.error('M-Pesa callback processing failed', {
+      error: error.message,
+      stack: error.stack
+    });
     res.json({ success: false, message: 'Callback processing failed' });
   } finally {
     session.endSession();
