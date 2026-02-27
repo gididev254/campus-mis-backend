@@ -459,4 +459,117 @@ exports.markSellerPaid = async (req, res, next) => {
   }
 };
 
+// @desc    Checkout cart (create multiple orders from cart)
+// @route   POST /api/orders/checkout-cart
+// @access  Private (Buyer only)
+exports.checkoutCart = async (req, res, next) => {
+  try {
+    const { shippingAddress, phoneNumber } = req.body;
+
+    // Get user's cart
+    const Cart = require('../models/Cart');
+    const cart = await Cart.getOrCreate(req.user.id);
+
+    if (!cart || cart.items.length === 0) {
+      return next(new ErrorResponse('Your cart is empty', 400));
+    }
+
+    // Group items by seller
+    const itemsBySeller = {};
+    for (const item of cart.items) {
+      const product = await Product.findById(item.product).populate('seller');
+      if (!product || product.status !== 'available') {
+        return next(new ErrorResponse(`Product ${item.product.name} is not available`, 400));
+      }
+
+      const sellerId = product.seller._id.toString();
+      if (!itemsBySeller[sellerId]) {
+        itemsBySeller[sellerId] = {
+          seller: product.seller,
+          items: [],
+          total: 0
+        };
+      }
+
+      itemsBySeller[sellerId].items.push({
+        product: product._id,
+        name: product.name,
+        price: product.price,
+        quantity: item.quantity,
+        image: product.images[0]
+      });
+      itemsBySeller[sellerId].total += product.price * item.quantity;
+    }
+
+    // Create orders for each seller
+    const orders = [];
+    for (const [sellerId, sellerData] of Object.entries(itemsBySeller)) {
+      const orderNumber = `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+      const order = await Order.create({
+        orderNumber,
+        buyer: req.user.id,
+        seller: sellerId,
+        items: sellerData.items,
+        totalPrice: sellerData.total,
+        shippingAddress,
+        mpesaPhoneNumber: phoneNumber,
+        paymentStatus: 'pending',
+        orderStatus: 'pending'
+      });
+
+      orders.push(await order.populate('seller product'));
+    }
+
+    // Clear cart
+    await cart.clearCart();
+
+    res.status(201).json({
+      success: true,
+      message: `Created ${orders.length} order(s) from cart`,
+      data: orders
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Get payment status for an order
+// @route   GET /api/orders/:id/payment-status
+// @access  Private (Buyer only)
+exports.getPaymentStatus = async (req, res, next) => {
+  try {
+    const order = await Order.findById(req.params.id)
+      .populate('buyer', 'name email phone')
+      .populate('seller', 'name email phone')
+      .populate('product', 'name images');
+
+    if (!order) {
+      return next(new ErrorResponse('Order not found', 404));
+    }
+
+    // Check ownership
+    if (order.buyer._id.toString() !== req.user.id && order.seller._id.toString() !== req.user.id) {
+      return next(new ErrorResponse('Not authorized to view this order', 403));
+    }
+
+    res.json({
+      success: true,
+      data: {
+        orderId: order._id,
+        orderNumber: order.orderNumber,
+        paymentStatus: order.paymentStatus,
+        mpesaPhoneNumber: order.mpesaPhoneNumber,
+        mpesaReceipt: order.mpesaReceipt,
+        mpesaCheckoutRequestID: order.mpesaCheckoutRequestID,
+        paymentAmount: order.totalPrice,
+        paymentDate: order.paidAt,
+        orderStatus: order.orderStatus
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = exports;
