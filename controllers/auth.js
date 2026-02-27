@@ -416,6 +416,32 @@ exports.resetPassword = async (req, res, next) => {
       return next(new ErrorResponse('Please provide token and new password', 400));
     }
 
+    // Validate password length
+    if (newPassword.length < 12) {
+      logger.auth('password_reset_failed', {
+        ip: req.ip,
+        userAgent: req.get('user-agent'),
+        success: false,
+        reason: 'Password too short'
+      });
+      return next(new ErrorResponse('Password must be at least 12 characters long', 400));
+    }
+
+    // Validate password complexity
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{12,}$/;
+    if (!passwordRegex.test(newPassword)) {
+      logger.auth('password_reset_failed', {
+        ip: req.ip,
+        userAgent: req.get('user-agent'),
+        success: false,
+        reason: 'Password does not meet complexity requirements'
+      });
+      return next(new ErrorResponse(
+        'Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character (@$!%*?&)',
+        400
+      ));
+    }
+
     const user = await User.findOne({
       resetPasswordToken: token,
       resetPasswordExpire: { $gt: Date.now() }
@@ -429,6 +455,14 @@ exports.resetPassword = async (req, res, next) => {
     user.resetPasswordToken = undefined;
     user.resetPasswordExpire = undefined;
     await user.save();
+
+    logger.auth('password_reset_success', {
+      userId: user._id,
+      email: user.email,
+      ip: req.ip,
+      userAgent: req.get('user-agent'),
+      success: true
+    });
 
     res.json({
       success: true,

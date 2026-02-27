@@ -335,10 +335,32 @@ exports.resetUserPassword = async (req, res, next) => {
       return next(new ErrorResponse('User not found', 404));
     }
 
-    // Generate secure random password (12 characters)
-    const newPassword = crypto.randomBytes(8).toString('base64')
-      .replace(/[+/=]/g, '')
-      .substring(0, 12);
+    // Generate secure random password that meets validation requirements
+    // Must be at least 12 chars with uppercase, lowercase, number, and special character
+    const generateSecurePassword = () => {
+      const lowercase = 'abcdefghijklmnopqrstuvwxyz';
+      const uppercase = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+      const numbers = '0123456789';
+      const special = '@$!%*?&';
+      const all = lowercase + uppercase + numbers + special;
+
+      // Ensure at least one of each required type
+      let password = '';
+      password += lowercase[Math.floor(crypto.randomInt(lowercase.length))];
+      password += uppercase[Math.floor(crypto.randomInt(uppercase.length))];
+      password += numbers[Math.floor(crypto.randomInt(numbers.length))];
+      password += special[Math.floor(crypto.randomInt(special.length))];
+
+      // Fill remaining length (aim for 16 chars total, so 12 more)
+      for (let i = 0; i < 12; i++) {
+        password += all[Math.floor(crypto.randomInt(all.length))];
+      }
+
+      // Shuffle the password
+      return password.split('').sort(() => crypto.randomInt(3) - 1).join('');
+    };
+
+    const newPassword = generateSecurePassword();
 
     user.password = newPassword;
     user.forcePasswordChange = true; // Force user to change password on next login
