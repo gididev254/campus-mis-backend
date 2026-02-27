@@ -53,7 +53,39 @@ const sellerBalanceSchema = new mongoose.Schema({
   lastUpdated: {
     type: Date,
     default: Date.now
-  }
+  },
+  /**
+   * Ledger array tracking all transactions (sales, withdrawals, fees)
+   * Provides complete audit trail for seller earnings
+   */
+  ledger: [{
+    type: {
+      type: String,
+      enum: ['sale', 'withdrawal', 'fee', 'adjustment'],
+      required: true
+    },
+    amount: {
+      type: Number,
+      required: true
+    },
+    orderId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Order'
+    },
+    productTitle: String,
+    buyerName: String,
+    description: String,
+    status: {
+      type: String,
+      enum: ['available', 'pending', 'completed', 'failed'],
+      default: 'available'
+    },
+    date: {
+      type: Date,
+      default: Date.now
+    },
+    metadata: mongoose.Schema.Types.Mixed
+  }]
 }, {
   timestamps: true
 });
@@ -71,6 +103,12 @@ sellerBalanceSchema.index({ seller: 1 }, { unique: true });
  * Used for ranking sellers by balance
  */
 sellerBalanceSchema.index({ currentBalance: -1 });
+
+/**
+ * Index: Ledger date sorting
+ * Used for displaying transaction history
+ */
+sellerBalanceSchema.index({ 'ledger.date': -1 });
 
 /**
  * Pre-save middleware to update lastUpdated timestamp
@@ -102,16 +140,31 @@ sellerBalanceSchema.methods.addEarnings = function(amount) {
  * @method
  * @memberof SellerBalance
  * @param {number} amount - Amount to withdraw
+ * @param {Object} metadata - Additional withdrawal metadata
  * @returns {Promise<SellerBalance>} Updated balance instance
  * @throws {Error} If insufficient balance
  */
-sellerBalanceSchema.methods.recordWithdrawal = function(amount) {
+sellerBalanceSchema.methods.recordWithdrawal = function(amount, metadata = {}) {
   if (this.currentBalance < amount) {
     throw new Error('Insufficient balance');
   }
   this.currentBalance -= amount;
   this.withdrawnTotal += amount;
   this.pendingWithdrawals += amount;
+
+  // Create ledger entry for withdrawal
+  this.ledger.push({
+    type: 'withdrawal',
+    amount: amount,
+    description: 'Withdrawal request',
+    status: 'pending',
+    date: new Date(),
+    metadata: {
+      ...metadata,
+      requestedAt: new Date()
+    }
+  });
+
   return this.save();
 };
 
@@ -119,11 +172,30 @@ sellerBalanceSchema.methods.recordWithdrawal = function(amount) {
  * Confirm withdrawal when admin marks it as paid
  * @method
  * @memberof SellerBalance
- * @param {number} amount - Amount being confirmed
+ * @param {string} withdrawalId - Withdrawal request identifier
+ * @param {Object} metadata - Additional confirmation metadata
  * @returns {Promise<SellerBalance>} Updated balance instance
  */
-sellerBalanceSchema.methods.confirmWithdrawal = function(amount) {
-  this.pendingWithdrawals -= amount;
+sellerBalanceSchema.methods.confirmWithdrawal = function(withdrawalId, metadata = {}) {
+  this.pendingWithdrawals -= this.ledger
+    .filter(e => e.type === 'withdrawal' && e.status === 'pending')
+    .reduce((sum, e) => sum + e.amount, 0);
+
+  // Find and update the pending withdrawal ledger entry
+  const withdrawalEntry = this.ledger.find(
+    e => e.type === 'withdrawal' && e.status === 'pending'
+  );
+
+  if (withdrawalEntry) {
+    withdrawalEntry.status = 'completed';
+    withdrawalEntry.description = 'Withdrawal completed';
+    withdrawalEntry.metadata = {
+      ...withdrawalEntry.metadata,
+      ...metadata,
+      confirmedAt: new Date()
+    };
+  }
+
   return this.save();
 };
 

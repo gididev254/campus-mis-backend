@@ -148,6 +148,18 @@ exports.checkoutCart = async (req, res, next) => {
       await session.commitTransaction();
       session.endSession();
 
+      // Update seller balances automatically in test mode
+      const { updateSellerBalanceOnPayment } = require('../utils/sellerBalance');
+      for (const order of orders) {
+        const result = await updateSellerBalanceOnPayment(order._id);
+        if (!result.success) {
+          logger.error('Test mode: Failed to update seller balance', {
+            orderId: order._id,
+            error: result.message
+          });
+        }
+      }
+
       return res.json({
         success: true,
         message: 'Order completed successfully (test mode)',
@@ -675,6 +687,13 @@ exports.mpesaCallback = async (req, res, next) => {
         checkoutRequestID: CheckoutRequestID,
         mpesaReceipt: MpesaReceiptNumber
       });
+
+      // Update seller balances automatically for all orders
+      // This runs after transaction commit to avoid conflicts
+      const orderIds = orders.map(o => o._id.toString());
+      logger.info('M-Pesa callback: Updating seller balances', {
+        orderCount: orderIds.length
+      });
     } else {
       // Failed - update ALL orders
       logger.payment('callback_failed', {
@@ -716,6 +735,27 @@ exports.mpesaCallback = async (req, res, next) => {
 
     await session.commitTransaction();
     res.json({ success: true });
+
+    // Update seller balances AFTER transaction commit (only for successful payments)
+    // This is done outside the transaction to avoid conflicts and allow for retries
+    if (ResultCode === 0) {
+      const { updateSellerBalanceOnPayment } = require('../utils/sellerBalance');
+      const orderIds = orders.map(o => o._id.toString());
+
+      // Process updates asynchronously (fire and forget)
+      // Each order's seller will be credited automatically
+      for (const orderId of orderIds) {
+        setImmediate(async () => {
+          const result = await updateSellerBalanceOnPayment(orderId);
+          if (!result.success && !result.alreadyProcessed) {
+            logger.error('Failed to update seller balance after payment', {
+              orderId,
+              error: result.message
+            });
+          }
+        });
+      }
+    }
 
   } catch (error) {
     await session.abortTransaction();

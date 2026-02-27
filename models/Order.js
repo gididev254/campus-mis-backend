@@ -92,6 +92,14 @@ const orderSchema = new mongoose.Schema({
     type: String,
     default: null
   },
+  mpesaResultCode: {
+    type: String,
+    default: null
+  },
+  mpesaResultDesc: {
+    type: String,
+    default: null
+  },
   // Seller payout tracking
   sellerPaid: {
     type: Boolean,
