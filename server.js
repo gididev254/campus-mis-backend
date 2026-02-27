@@ -37,13 +37,41 @@ const server = http.createServer(app);
 // Initialize Socket.io
 const io = new Server(server, {
   cors: {
-    origin: [
-      'http://localhost:3000',
-      'http://127.0.0.1:3000',
-      'http://localhost:3001',
-      'http://127.0.0.1:3001',
-      process.env.FRONTEND_URL || 'https://campus-mis-frontend.vercel.app'
-    ],
+    origin: function (origin, callback) {
+      // Allow requests with no origin
+      if (!origin) return callback(null, true);
+
+      // Local development origins
+      const localOrigins = [
+        'http://localhost:3000',
+        'http://127.0.0.1:3000',
+        'http://localhost:3001',
+        'http://127.0.0.1:3001'
+      ];
+
+      // Allow local origins
+      if (localOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      // Allow all Vercel deployments (including preview deployments)
+      if (origin.endsWith('.vercel.app')) {
+        return callback(null, true);
+      }
+
+      // Allow custom frontend URL from env
+      const frontendUrl = process.env.FRONTEND_URL;
+      if (frontendUrl && origin === frontendUrl) {
+        return callback(null, true);
+      }
+
+      // Allow in development/test mode
+      if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test') {
+        return callback(null, true);
+      }
+
+      callback(new Error('Not allowed by CORS'));
+    },
     credentials: true,
     methods: ['GET', 'POST']
   },
@@ -266,13 +294,41 @@ app.use(helmet({
 }));
 
 app.use(cors({
-  origin: [
-    'http://localhost:3000',
-    'http://127.0.0.1:3000',
-    'http://localhost:3001',
-    'http://127.0.0.1:3001',
-    process.env.FRONTEND_URL || 'https://campus-mis-frontend.vercel.app'
-  ],
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps, curl, or Postman)
+    if (!origin) return callback(null, true);
+
+    // Local development origins
+    const localOrigins = [
+      'http://localhost:3000',
+      'http://127.0.0.1:3000',
+      'http://localhost:3001',
+      'http://127.0.0.1:3001'
+    ];
+
+    // Allow local origins
+    if (localOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    // Allow all Vercel deployments (including preview deployments)
+    if (origin.endsWith('.vercel.app')) {
+      return callback(null, true);
+    }
+
+    // Allow custom frontend URL from env
+    const frontendUrl = process.env.FRONTEND_URL;
+    if (frontendUrl && origin === frontendUrl) {
+      return callback(null, true);
+    }
+
+    // Allow in development/test mode
+    if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test') {
+      return callback(null, true);
+    }
+
+    callback(new Error('Not allowed by CORS'));
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
