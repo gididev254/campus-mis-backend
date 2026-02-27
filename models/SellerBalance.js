@@ -1,29 +1,11 @@
-/**
- * @fileoverview Seller Balance model schema for Campus Market
- * @description Tracks seller earnings, balances, and withdrawal history
- * @module models/SellerBalance
- */
-
 const mongoose = require('mongoose');
 
-/**
- * Seller Balance Schema
- * @typedef {Object} SellerBalance
- * @property {mongoose.Types.ObjectId} seller - Reference to User (seller) (required, unique)
- * @property {number} totalEarnings - Total earnings across all orders (default: 0, non-negative)
- * @property {number} totalOrders - Total number of completed orders (default: 0, non-negative)
- * @property {number} currentBalance - Current available balance for withdrawal (default: 0, non-negative)
- * @property {number} pendingWithdrawals - Amount pending withdrawal confirmation (default: 0, non-negative)
- * @property {number} withdrawnTotal - Total amount withdrawn to date (default: 0, non-negative)
- * @property {Date} lastUpdated - Timestamp of last balance update
- * @property {Date} createdAt - Timestamp of balance creation
- * @property {Date} updatedAt - Timestamp of last update
- */
 const sellerBalanceSchema = new mongoose.Schema({
   seller: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: true
+    required: true,
+    unique: true
   },
   totalEarnings: {
     type: Number,
@@ -54,10 +36,37 @@ const sellerBalanceSchema = new mongoose.Schema({
     type: Date,
     default: Date.now
   },
-  /**
-   * Ledger array tracking all transactions (sales, withdrawals, fees)
-   * Provides complete audit trail for seller earnings
-   */
+  withdrawalRequests: [{
+    _id: {
+      type: mongoose.Schema.Types.ObjectId,
+      auto: true
+    },
+    amount: {
+      type: Number,
+      required: true
+    },
+    status: {
+      type: String,
+      enum: ['pending', 'processing', 'completed', 'cancelled'],
+      default: 'pending'
+    },
+    requestedAt: {
+      type: Date,
+      default: Date.now
+    },
+    processedAt: {
+      type: Date
+    },
+    completedAt: {
+      type: Date
+    },
+    notes: String,
+    cancelledAt: {
+      type: Date
+    },
+    cancellationReason: String,
+    metadata: mongoose.Schema.Types.Mixed
+  }],
   ledger: [{
     type: {
       type: String,
@@ -68,17 +77,21 @@ const sellerBalanceSchema = new mongoose.Schema({
       type: Number,
       required: true
     },
-    orderId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Order'
+    balance: {
+      type: Number,
+      required: true
     },
-    productTitle: String,
-    buyerName: String,
     description: String,
     status: {
       type: String,
-      enum: ['available', 'pending', 'completed', 'failed'],
-      default: 'available'
+      enum: ['pending', 'completed', 'failed'],
+      default: 'completed'
+    },
+    withdrawalId: {
+      type: mongoose.Schema.Types.ObjectId
+    },
+    orderId: {
+      type: mongoose.Schema.Types.ObjectId
     },
     date: {
       type: Date,
@@ -90,44 +103,17 @@ const sellerBalanceSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Database indexes for performance optimization
-
-/**
- * Unique index: One balance per seller
- * Ensures each seller has only one balance record
- */
-sellerBalanceSchema.index({ seller: 1 }, { unique: true });
-
-/**
- * Index: Current balance sorting
- * Used for ranking sellers by balance
- */
+// Index for faster queries
+sellerBalanceSchema.index({ seller: 1 });
 sellerBalanceSchema.index({ currentBalance: -1 });
 
-/**
- * Index: Ledger date sorting
- * Used for displaying transaction history
- */
-sellerBalanceSchema.index({ 'ledger.date': -1 });
-
-/**
- * Pre-save middleware to update lastUpdated timestamp
- * @function
- * @memberof SellerBalance
- * @param {Function} next - Express next middleware function
- */
+// Update lastUpdated timestamp before saving
 sellerBalanceSchema.pre('save', function(next) {
   this.lastUpdated = Date.now();
   next();
 });
 
-/**
- * Add earnings when an order is completed
- * @method
- * @memberof SellerBalance
- * @param {number} amount - Amount to add to earnings
- * @returns {Promise<SellerBalance>} Updated balance instance
- */
+// Method to add earnings when order is completed
 sellerBalanceSchema.methods.addEarnings = function(amount) {
   this.totalEarnings += amount;
   this.currentBalance += amount;
@@ -135,15 +121,7 @@ sellerBalanceSchema.methods.addEarnings = function(amount) {
   return this.save();
 };
 
-/**
- * Record a withdrawal request
- * @method
- * @memberof SellerBalance
- * @param {number} amount - Amount to withdraw
- * @param {Object} metadata - Additional withdrawal metadata
- * @returns {Promise<SellerBalance>} Updated balance instance
- * @throws {Error} If insufficient balance
- */
+// Method to record withdrawal
 sellerBalanceSchema.methods.recordWithdrawal = function(amount, metadata = {}) {
   if (this.currentBalance < amount) {
     throw new Error('Insufficient balance');
@@ -152,10 +130,26 @@ sellerBalanceSchema.methods.recordWithdrawal = function(amount, metadata = {}) {
   this.withdrawnTotal += amount;
   this.pendingWithdrawals += amount;
 
-  // Create ledger entry for withdrawal
+  // Create withdrawal request record
+  const withdrawalId = new mongoose.Types.ObjectId();
+  this.withdrawalRequests.push({
+    _id: withdrawalId,
+    amount: amount,
+    status: 'pending',
+    requestedAt: new Date(),
+    notes: metadata.notes,
+    metadata: {
+      ...metadata,
+      phoneNumber: metadata.phoneNumber
+    }
+  });
+
+  // Create ledger entry linked to withdrawal request
   this.ledger.push({
     type: 'withdrawal',
     amount: amount,
+    balance: this.currentBalance,
+    withdrawalId: withdrawalId,
     description: 'Withdrawal request',
     status: 'pending',
     date: new Date(),
@@ -168,45 +162,51 @@ sellerBalanceSchema.methods.recordWithdrawal = function(amount, metadata = {}) {
   return this.save();
 };
 
-/**
- * Confirm withdrawal when admin marks it as paid
- * @method
- * @memberof SellerBalance
- * @param {string} withdrawalId - Withdrawal request identifier
- * @param {Object} metadata - Additional confirmation metadata
- * @returns {Promise<SellerBalance>} Updated balance instance
- */
-sellerBalanceSchema.methods.confirmWithdrawal = function(withdrawalId, metadata = {}) {
-  this.pendingWithdrawals -= this.ledger
-    .filter(e => e.type === 'withdrawal' && e.status === 'pending')
-    .reduce((sum, e) => sum + e.amount, 0);
+// Method to confirm withdrawal (when admin marks as paid)
+sellerBalanceSchema.methods.confirmWithdrawal = async function(withdrawalId, adminId, metadata = {}) {
+  const withdrawalRequest = this.withdrawalRequests.id(withdrawalId);
 
-  // Find and update the pending withdrawal ledger entry
-  const withdrawalEntry = this.ledger.find(
-    e => e.type === 'withdrawal' && e.status === 'pending'
+  if (!withdrawalRequest) {
+    throw new Error('Withdrawal request not found');
+  }
+
+  if (withdrawalRequest.status === 'completed') {
+    return this; // Already processed
+  }
+
+  // Update withdrawal request
+  withdrawalRequest.status = 'completed';
+  withdrawalRequest.processedAt = new Date();
+  withdrawalRequest.completedAt = new Date();
+  withdrawalRequest.metadata = {
+    ...withdrawalRequest.metadata,
+    ...metadata,
+    processedBy: adminId
+  };
+
+  // Update pending withdrawals
+  this.pendingWithdrawals -= withdrawalRequest.amount;
+
+  // Update linked ledger entry
+  const ledgerEntry = this.ledger.find(
+    e => e.withdrawalId && e.withdrawalId.toString() === withdrawalId.toString()
   );
 
-  if (withdrawalEntry) {
-    withdrawalEntry.status = 'completed';
-    withdrawalEntry.description = 'Withdrawal completed';
-    withdrawalEntry.metadata = {
-      ...withdrawalEntry.metadata,
+  if (ledgerEntry) {
+    ledgerEntry.status = 'completed';
+    ledgerEntry.description = 'Withdrawal completed';
+    ledgerEntry.metadata = {
+      ...ledgerEntry.metadata,
       ...metadata,
-      confirmedAt: new Date()
+      confirmedAt: new Date(),
+      processedBy: adminId
     };
   }
 
   return this.save();
 };
 
-/**
- * Static method to get or create balance for seller
- * @static
- * @method
- * @memberof SellerBalance
- * @param {string} sellerId - Seller user ID
- * @returns {Promise<SellerBalance>} Seller's balance (creates new if doesn't exist)
- */
+// Static to get or create balance for seller
 sellerBalanceSchema.statics.getOrCreate = async function(sellerId) {
   let balance = await this.findOne({ seller: sellerId });
   if (!balance) {

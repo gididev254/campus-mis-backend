@@ -7,7 +7,9 @@ const {
   getAllReviews,
   deleteReview,
   getAllMessages,
-  flagMessage
+  flagMessage,
+  getWithdrawalRequests,
+  processWithdrawalRequest
 } = require('../controllers/admin');
 const { protect, authorize } = require('../middleware/auth');
 
@@ -28,5 +30,9 @@ router.get('/reviews', getAllReviews);
 router.delete('/reviews/:id', deleteReview);
 router.get('/messages', getAllMessages);
 router.post('/messages/:id/flag', flagMessage);
+
+// Withdrawal management routes
+router.get('/withdrawals', getWithdrawalRequests);
+router.put('/withdrawals/:requestId', processWithdrawalRequest);
 
 module.exports = router;

@@ -29,7 +29,6 @@ const wishlistRoutes = require('./routes/wishlist');
 const notificationRoutes = require('./routes/notifications');
 const uploadRoutes = require('./routes/upload');
 const adminRoutes = require('./routes/admin');
-const sellerRoutes = require('./routes/sellers');
 
 // Initialize express app and HTTP server
 const app = express();
@@ -266,30 +265,14 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
 
-// CORS configuration
-const allowedOrigins = [
-  'http://localhost:3000',
-  'http://127.0.0.1:3000',
-  'http://localhost:3001',
-  'http://127.0.0.1:3001',
-  process.env.FRONTEND_URL || 'https://campus-mis-frontend.vercel.app'
-];
-
-// Allow all Vercel preview deployments
 app.use(cors({
-  origin: function(origin, callback) {
-    // Allow requests with no origin (like mobile apps, curl, Postman)
-    if (!origin) return callback(null, true);
-
-    // Check if origin is in allowed list or is a Vercel preview deployment
-    if (allowedOrigins.indexOf(origin) !== -1 ||
-        origin.includes('.vercel.app') ||
-        origin.includes('vercel.app')) {
-      callback(null, true);
-    } else {
-      callback(new Error('CORS not allowed for origin: ' + origin));
-    }
-  },
+  origin: [
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'http://localhost:3001',
+    'http://127.0.0.1:3001',
+    process.env.FRONTEND_URL || 'https://campus-mis-frontend.vercel.app'
+  ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
@@ -492,7 +475,6 @@ app.use('/api/v1/wishlist', wishlistRoutes);
 app.use('/api/v1/notifications', notificationRoutes);
 app.use('/api/v1/upload', uploadRoutes);
 app.use('/api/v1/admin', adminRoutes);
-app.use('/api/v1/sellers', sellerRoutes);
 
 // Error handling
 app.use(notFound);

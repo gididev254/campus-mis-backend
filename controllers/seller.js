@@ -100,6 +100,24 @@ exports.requestWithdrawal = async (req, res, next) => {
       phoneNumber: req.user.phone
     });
 
+    // Emit Socket event to admin users
+    if (global.io) {
+      global.io.emit('withdrawal:request', {
+        sellerId,
+        sellerName: req.user.name,
+        sellerEmail: req.user.email,
+        sellerPhone: req.user.phone,
+        amount,
+        notes,
+        requestedAt: new Date().toISOString()
+      });
+
+      logger.info('Withdrawal request - Socket event emitted to admins', {
+        sellerId,
+        amount
+      });
+    }
+
     logger.payment('withdrawal_request', {
       success: true,
       sellerId,

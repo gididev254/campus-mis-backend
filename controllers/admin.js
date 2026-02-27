@@ -3,7 +3,9 @@ const User = require('../models/User');
 const Product = require('../models/Product');
 const Message = require('../models/Message');
 const Review = require('../models/Review');
+const SellerBalance = require('../models/SellerBalance');
 const ErrorResponse = require('../middleware/error').ErrorResponse;
+const logger = require('../utils/logger');
 
 /**
  * @desc    Get revenue analytics with trends
@@ -615,6 +617,146 @@ exports.flagMessage = async (req, res, next) => {
         messageId: message._id,
         reason,
         flaggedAt: new Date()
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Get all withdrawal requests
+ * @route   GET /api/admin/withdrawals
+ * @access  Private (Admin only)
+ */
+exports.getWithdrawalRequests = async (req, res, next) => {
+  try {
+    const { status = 'pending', page = 1, limit = 20 } = req.query;
+    const skip = (page - 1) * limit;
+
+    const balances = await SellerBalance.find({
+      'withdrawalRequests.status': status
+    }).populate('seller', 'name email phone').lean();
+
+    const withdrawalRequests = [];
+    balances.forEach(balance => {
+      balance.withdrawalRequests.forEach(request => {
+        if (request.status === status) {
+          withdrawalRequests.push({
+            ...request,
+            sellerId: balance.seller._id,
+            sellerName: balance.seller.name,
+            sellerEmail: balance.seller.email,
+            sellerPhone: balance.seller.phone,
+            currentBalance: balance.currentBalance
+          });
+        }
+      });
+    });
+
+    withdrawalRequests.sort((a, b) => new Date(b.requestedAt) - new Date(a.requestedAt));
+
+    const total = withdrawalRequests.length;
+    const paginated = withdrawalRequests.slice(skip, skip + parseInt(limit));
+
+    res.json({
+      success: true,
+      data: paginated,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / limit)
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Process withdrawal request
+ * @route   PUT /api/admin/withdrawals/:requestId
+ * @access  Private (Admin only)
+ */
+exports.processWithdrawalRequest = async (req, res, next) => {
+  try {
+    const { requestId } = req.params;
+    const { status, notes } = req.body;
+
+    const balance = await SellerBalance.findOne({
+      'withdrawalRequests._id': requestId
+    });
+
+    if (!balance) {
+      return next(new ErrorResponse('Withdrawal request not found', 404));
+    }
+
+    const withdrawalRequest = balance.withdrawalRequests.id(requestId);
+
+    if (!withdrawalRequest) {
+      return next(new ErrorResponse('Withdrawal request not found', 404));
+    }
+
+    withdrawalRequest.status = status;
+
+    if (status === 'processing') {
+      withdrawalRequest.processedAt = new Date();
+      withdrawalRequest.metadata = {
+        ...withdrawalRequest.metadata,
+        processedBy: req.user.id,
+        adminNotes: notes
+      };
+    } else if (status === 'completed') {
+      withdrawalRequest.completedAt = new Date();
+      withdrawalRequest.metadata = {
+        ...withdrawalRequest.metadata,
+        completedBy: req.user.id,
+        completionNotes: notes
+      };
+
+      balance.pendingWithdrawals -= withdrawalRequest.amount;
+
+      const ledgerEntry = balance.ledger.find(
+        e => e.withdrawalId && e.withdrawalId.toString() === requestId.toString()
+      );
+
+      if (ledgerEntry) {
+        ledgerEntry.status = 'completed';
+        ledgerEntry.description = 'Withdrawal completed';
+        ledgerEntry.metadata = {
+          ...ledgerEntry.metadata,
+          completedAt: new Date(),
+          completedBy: req.user.id
+        };
+      }
+
+      // Emit Socket event to seller
+      if (global.io) {
+        global.io.to(`user:${balance.seller}`).emit('withdrawal:completed', {
+          withdrawalId: requestId,
+          amount: withdrawalRequest.amount,
+          notes,
+          completedAt: new Date().toISOString()
+        });
+
+        logger.info('Withdrawal completed - Socket event emitted', {
+          sellerId: balance.seller,
+          withdrawalId: requestId,
+          amount: withdrawalRequest.amount
+        });
+      }
+    }
+
+    await balance.save();
+
+    res.json({
+      success: true,
+      message: `Withdrawal request marked as ${status}`,
+      data: {
+        withdrawalId: requestId,
+        status: withdrawalRequest.status,
+        amount: withdrawalRequest.amount
       }
     });
   } catch (error) {
