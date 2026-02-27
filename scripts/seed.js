@@ -11,7 +11,7 @@ const users = [
   {
     name: 'Admin User',
     email: 'admin@market.com',
-    password: 'Admin@123',
+    password: 'admin123',
     role: 'admin',
     phone: '+254700000001',
     location: 'Main Campus',
