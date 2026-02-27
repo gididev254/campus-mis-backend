@@ -11,7 +11,6 @@ const {
   getPayoutLedger,
   markSellerPaid,
   checkoutCart,
-  markSellerPaidBatch,
   getPaymentStatus
 } = require('../controllers/order');
 const { protect, authorize } = require('../middleware/auth');
@@ -66,6 +65,5 @@ router.put('/:id/cancel', protect, cancelOrder);
 // Admin payout routes
 router.get('/admin/payouts/ledger', protect, authorize('admin'), getPayoutLedger);
 router.put('/admin/payouts/:orderId/pay', protect, authorize('admin'), markSellerPaid);
-router.put('/admin/payouts/seller/:sellerId/pay', protect, authorize('admin'), markSellerPaidBatch);
 
 module.exports = router;
