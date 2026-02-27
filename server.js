@@ -4,7 +4,6 @@ const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
 const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
 const mongoSanitize = require('express-mongo-sanitize');
 const morgan = require('morgan');
 const fs = require('fs');
@@ -333,30 +332,6 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
-
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: process.env.NODE_ENV === 'test' ? 10000 : 100, // limit each IP to 100 requests per windowMs
-  message: 'Too many requests from this IP, please try again later',
-  skip: (req) => process.env.NODE_ENV === 'test' // Skip rate limiting in test mode
-});
-
-// Stricter rate limiting for auth endpoints
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: process.env.NODE_ENV === 'test' ? 1000 : 5, // 5 requests per windowMs
-  message: {
-    success: false,
-    message: 'Too many authentication attempts, please try again later'
-  },
-  skip: (req) => process.env.NODE_ENV === 'test',
-  standardHeaders: true,
-  legacyHeaders: false
-});
-
-app.use('/api/', limiter);
-app.use('/api/v1/auth', authLimiter);
 
 // Body parser
 app.use(express.json({ limit: '10mb' }));
